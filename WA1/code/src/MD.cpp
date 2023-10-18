@@ -431,7 +431,7 @@ double MeanSquaredVelocity() {
 
     
     for (int i=0; i<N; i++) {
-        
+        //Otimização: para reduzir o número de loops
         temp=v[i][0];
         vx2 +=temp*temp;
 
@@ -458,11 +458,9 @@ double Kinetic() { //Write Function here!
     for (int i=0; i<N; i++) {
         
         v2 = 0.;
-        for (int j=0; j<3; j++) {
-            temp=v[i][j];
-            v2 += temp*temp;
-            
-        }
+        //Otimização: para reduzir o número de ciclos
+        temp=v[i][0]; v2 += temp*temp;temp=v[i][1]; v2 += temp*temp;temp=v[i][2]; v2 += temp*temp;
+
         kin += m*v2/2.;
         
     }
@@ -485,16 +483,18 @@ double Potential() {
             
             if (j!=i) {
                 r2=0.;
-                for (k=0; k<3; k++) {
-                    temp=(r[i][k]-r[j][k]);
-                    r2 += temp*temp;
-                }
+                //Otimização: remoção do loop
+                temp=(r[i][0]-r[j][0]); r2 += temp*temp;
+                temp=(r[i][1]-r[j][1]); r2 += temp*temp;
+                temp=(r[i][2]-r[j][2]); r2 += temp*temp;
+
                 rnorm=sqrt(r2);
                 quot=sigma/rnorm;
                 //Otimização: substituição de pow por multiplicações consecutivas
                 //rationale: https://stackoverflow.com/questions/2940367/what-is-more-efficient-using-pow-to-square-or-just-multiply-it-with-itself
-                term1 = quot*quot*quot*quot*quot*quot*quot*quot*quot*quot*quot*quot;
+                //Otimização: inversão da ordem das operações
                 term2 = quot*quot*quot*quot*quot*quot;
+                term1 = term2*quot*quot*quot*quot*quot*quot;
                 
                 Pot += 4*epsilon*(term1 - term2);
                 
@@ -517,11 +517,17 @@ void computeAccelerations() {
     
     
 
-    //Otimização possível: Remover isto all together supondo que cpp inicializa tudo a 0, no entanto problema nas seguintes iterações 
-    for (i = 0; i < N; i++) {  // set all accelerations to zero
-        for (k = 0; k < 3; k++) {
-            a[i][k] = 0;
-        }
+    for (i = 0; i < N/10; i+=10) {  // set all accelerations to zero
+        a[i][0] = 0;a[i][1] = 0;a[i][2] = 0;
+        a[i+1][0] = 0;a[i+1][1] = 0;a[i+1][2] = 0;
+        a[i+2][0] = 0;a[i+2][1] = 0;a[i+2][2] = 0;
+        a[i+3][0] = 0;a[i+3][1] = 0;a[i+3][2] = 0;
+        a[i+4][0] = 0;a[i+4][1] = 0;a[i+4][2] = 0;
+        a[i+5][0] = 0;a[i+5][1] = 0;a[i+5][2] = 0;
+        a[i+6][0] = 0;a[i+6][1] = 0;a[i+6][2] = 0;
+        a[i+7][0] = 0;a[i+7][1] = 0;a[i+7][2] = 0;
+        a[i+8][0] = 0;a[i+8][1] = 0;a[i+8][2] = 0;
+        a[i+9][0] = 0;a[i+9][1] = 0;a[i+9][2] = 0;
     }
 
 
@@ -562,24 +568,34 @@ double VelocityVerlet(double dt, int iter, FILE *fp) {
     //  Update positions and velocity with current velocity and acceleration
     //printf("  Updated Positions!\n");
     for (i=0; i<N; i++) {
+        //Otimização remoção dos ciclos
+        r[i][0] += v[i][0]*dt + 0.5*a[i][0]*dt*dt;v[i][0] += 0.5*a[i][0]*dt;
+        r[i][1] += v[i][1]*dt + 0.5*a[i][1]*dt*dt;v[i][1] += 0.5*a[i][1]*dt;
+        r[i][2] += v[i][2]*dt + 0.5*a[i][2]*dt*dt;v[i][2] += 0.5*a[i][2]*dt;
+        /*
         for (j=0; j<3; j++) {
             r[i][j] += v[i][j]*dt + 0.5*a[i][j]*dt*dt;
             
             v[i][j] += 0.5*a[i][j]*dt;
         }
+        */
         //printf("  %i  %6.4e   %6.4e   %6.4e\n",i,r[i][0],r[i][1],r[i][2]);
     }
     //  Update accellerations from updated positions
     computeAccelerations();
     //  Update velocity with updated acceleration
+    /*
     for (i=0; i<N; i++) {
         for (j=0; j<3; j++) {
             v[i][j] += 0.5*a[i][j]*dt;
         }
     }
+    */
     
     // Elastic walls
     for (i=0; i<N; i++) {
+        //Otimização: Merge do loop de cima com este 
+        v[i][0]+=0.5*a[i][0]*dt;v[i][1]+=0.5*a[i][1]*dt;v[i][2]+=0.5*a[i][2]*dt;
         for (j=0; j<3; j++) {
             if (r[i][j]<0.) {
                 v[i][j] *=-1.; //- elastic walls
