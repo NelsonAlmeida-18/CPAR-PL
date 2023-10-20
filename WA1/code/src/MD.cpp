@@ -41,6 +41,9 @@ double kB = 1.;
 double NA = 6.022140857e23;
 double kBSI = 1.38064852e-23;  // m^2*kg/(s^2*K)
 
+double PE;
+double PEA=0.;
+
 //  Size of box, which will be specified in natural units
 double L;
 
@@ -50,15 +53,12 @@ double Tinit;  //2;
 //
 const int MAXPART=5001;
 //  Position
-double r[MAXPART][3];
+double r[MAXPART*3];
 //  Velocity
-double v[MAXPART][3];
+double v[MAXPART*3];
 //  Acceleration
-double a[MAXPART][3];
+double a[MAXPART*3];
 //  Force
-
-//Otimização: Variável desnecessária ao programa 
-
 //double F[MAXPART][3];
 
 // atom type
@@ -84,6 +84,8 @@ double MeanSquaredVelocity();
 //  Compute total kinetic energy from particle mass and velocities
 double Kinetic();
 
+void computeAccelerationsAndPotencial();
+
 int main()
 {
     
@@ -91,7 +93,8 @@ int main()
     int i;
     double dt, Vol, Temp, Press, Pavg, Tavg, rho;
     double VolFac, TempFac, PressFac, timefac;
-    double KE, PE, mvs, gc, Z;
+    double KE, mvs, gc, Z;
+    double Pot = 0.;
     char trash[10000], prefix[1000], tfn[1000], ofn[1000], afn[1000];
     FILE *infp, *tfp, *ofp, *afp;
     
@@ -128,7 +131,6 @@ int main()
     //  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     //  Edit these factors to be computed in terms of basic properties in natural units of
     //  the gas being simulated
-    
     
     printf("\n  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n");
     printf("  WHICH NOBLE GAS WOULD YOU LIKE TO SIMULATE? (DEFAULT IS ARGON)\n");
@@ -214,7 +216,7 @@ int main()
     
     scanf("%lf",&rho);
     
-    //Otimização: Eliminação de uma multiplicação para a constante numérica
+    // Otimização: redução de uma multiplicação (10*216)
     N = 2160;
     Vol = N/(rho*NA);
     
@@ -241,8 +243,7 @@ int main()
     }
     // Vol = L*L*L;
     // Length of the box in natural units:
-    //Otimização temporária: remoção da utilização de pow por cbrt
-    L = pow(Vol, 1./3);
+    L = cbrt(Vol);
     
     //  Files that we can write different quantities to
     tfp = fopen(tfn,"w");     //  The MD trajectory, coordinates of every particle at each timestep
@@ -316,8 +317,8 @@ int main()
         //  We would also like to use the IGL to try to see if we can extract the gas constant
         mvs = MeanSquaredVelocity();
         KE = Kinetic();
-        PE = Potential();
-        
+        //PE = Potential();
+
         // Temperature from Kinetic Theory
         Temp = m*mvs/(3*kB) * TempFac;
         
@@ -330,7 +331,7 @@ int main()
         Tavg += Temp;
         Pavg += Press;
         
-        fprintf(ofp,"  %8.4e  %20.8f  %20.8f %20.8f  %20.8f  %20.8f \n",i*dt*timefac,Temp,Press,KE, PE, KE+PE);
+        fprintf(ofp,"  %8.4e  %20.8f  %20.8f %20.8f  %20.8f  %20.8f \n",i*dt*timefac,Temp,Press,KE, PEA, KE+PEA);
         
         
     }
@@ -348,7 +349,6 @@ int main()
     printf("\n  TO ANIMATE YOUR SIMULATION, OPEN THE FILE \n  '%s' WITH VMD AFTER THE SIMULATION COMPLETES\n",tfn);
     printf("\n  TO ANALYZE INSTANTANEOUS DATA ABOUT YOUR MOLECULE, OPEN THE FILE \n  '%s' WITH YOUR FAVORITE TEXT EDITOR OR IMPORT THE DATA INTO EXCEL\n",ofn);
     printf("\n  THE FOLLOWING THERMODYNAMIC AVERAGES WILL BE COMPUTED AND WRITTEN TO THE FILE  \n  '%s':\n",afn);
-    /*
     printf("\n  AVERAGE TEMPERATURE (K):                 %15.5f\n",Tavg);
     printf("\n  AVERAGE PRESSURE  (Pa):                  %15.5f\n",Pavg);
     printf("\n  PV/nT (J * mol^-1 K^-1):                 %15.5f\n",gc);
@@ -356,14 +356,9 @@ int main()
     printf("\n  THE COMPRESSIBILITY (unitless):          %15.5f \n",Z);
     printf("\n  TOTAL VOLUME (m^3):                      %10.5e \n",Vol*VolFac);
     printf("\n  NUMBER OF PARTICLES (unitless):          %i \n", N);
-    */
-    printf("\n  AVERAGE TEMPERATURE (K):                 %15.16f\n",Tavg);
-    printf("\n  AVERAGE PRESSURE  (Pa):                  %15.16f\n",Pavg);
-    printf("\n  PV/nT (J * mol^-1 K^-1):                 %15.16f\n",gc);
-    printf("\n  PERCENT ERROR of pV/nT AND GAS CONSTANT: %15.16f\n",100*fabs(gc-8.3144598)/8.3144598);
-    printf("\n  THE COMPRESSIBILITY (unitless):          %15.16f \n",Z);
-    printf("\n  TOTAL VOLUME (m^3):                      %10.16e \n",Vol*VolFac);
-    printf("\n  NUMBER OF PARTICLES (unitless):          %i \n", N);
+    
+    
+    
     
     fclose(tfp);
     fclose(ofp);
@@ -378,10 +373,7 @@ void initialize() {
     double pos;
     
     // Number of atoms in each direction
-    //Otimização temporária: Tendo em conta que o N é maior do que zero, então podemos utilizar outras operações para substiruir
-    //o uso de ceil pow por int(cbr(N)+1)
-    //Não executada
-    n = int(ceil(pow(N, 1.0/3)));
+    n = int(ceil(cbrt(N)));
     
     //  spacing between atoms along a given direction
     pos = L / n;
@@ -392,11 +384,15 @@ void initialize() {
     for (i=0; i<n; i++) {
         for (j=0; j<n; j++) {
             for (k=0; k<n; k++) {
-                if (p<N) {
-                    
+                if (p<N*3) {
+                    /*
                     r[p][0] = (i + 0.5)*pos;
                     r[p][1] = (j + 0.5)*pos;
                     r[p][2] = (k + 0.5)*pos;
+                    */
+                    r[p*3] = (i+0.5)*pos;
+                    r[p*3+1]= (j+0.5)*pos;
+                    r[p*3+2]= (k + 0.5)*pos;
                 }
                 p++;
             }
@@ -426,21 +422,17 @@ void initialize() {
 
 //  Function to calculate the averaged velocity squared
 double MeanSquaredVelocity() { 
-    //Otimização: Adição de uma variável auxiliar para guardar os valores da busca do array ao invés de os ir buscar duas vezes por instrução
-    double vx2=0,vy2=0,vz2=0,v2=0,temp = 0;
-
     
+    double vx2 = 0;
+    double vy2 = 0;
+    double vz2 = 0;
+    double v2, temp1, temp2, temp3;
+    
+    //Otimização: substituição de acessos às matrizes por var. temporária
     for (int i=0; i<N; i++) {
-        
-        temp=v[i][0];
-        vx2 +=temp*temp;
-
-        temp=v[i][1];
-        vy2 +=temp*temp;
-
-        temp=v[i][2];
-        vz2 +=temp*temp;
-        
+        temp1 = v[i*3+0]; vx2 += temp1*temp1;
+        temp2 = v[i*3+1]; vy2 +=temp2*temp2;
+        temp3 = v[i*3+2]; vz2 +=temp3*temp3;
     }
     v2 = (vx2+vy2+vz2)/N;
     
@@ -451,18 +443,26 @@ double MeanSquaredVelocity() {
 //  Function to calculate the kinetic energy of the system
 double Kinetic() { //Write Function here!  
     
-    //Otimização: Adição de uma variável temporária para acomodar os dados ao invés de ir buscar duas vezes ao array
-    double v2, kin, temp;
+    double v2, kin, tempx, tempy, tempz;
     
     kin =0.;
     for (int i=0; i<N; i++) {
         
         v2 = 0.;
+        /*
         for (int j=0; j<3; j++) {
-            temp=v[i][j];
-            v2 += temp*temp;
-            
+            //Otimização: substituição por var temporária
+            temp = v[i][j]; 
+            v2 += temp*temp;  
         }
+        */
+        tempx = v[i*3+0];
+        tempy = v[i*3+1];
+        tempz = v[i*3+2];
+
+        v2 += tempx*tempx+tempy*tempy+tempz*tempz;
+
+        //Otimização possível
         kin += m*v2/2.;
         
     }
@@ -475,9 +475,7 @@ double Kinetic() { //Write Function here!
 
 // Function to calculate the potential energy of the system
 double Potential() {
-    //Otimização: adição de uma variável temporária para acomodar os valores ao invés de ir buscar várias vezes ao array
-    double quot, r2, rnorm, term1, term2, Pot, temp;
-    double x,y,z;
+    double quot, r2, rnorm, term1, term2, Pot, tempx, tempy, tempz;
     int i, j, k;
     
     Pot=0.;
@@ -486,21 +484,33 @@ double Potential() {
             
             if (j!=i) {
                 r2=0.;
-
-                x=r[i][0]-r[j][0];
-                y=r[i][1]-r[j][1];
-                z=r[i][2]-r[j][2];
-
-                //Otimização redução de loops
-                rnorm=sqrt(x*x+y*y+z*z);
-
-                quot=sigma/rnorm;
-                //Otimização: substituição de pow por multiplicações consecutivas
-                //rationale: https://stackoverflow.com/questions/2940367/what-is-more-efficient-using-pow-to-square-or-just-multiply-it-with-itself
-                term2 = quot*quot*quot*quot*quot*quot;
-                term1 = term2*term2;
+                /* Otimização: Eliminação de ciclos
+                for (k=0; k<3; k++) {
+                    // Otimização: adição de variável temporária para reduzir acessos à matriz
+                    temp = (r[i][k]-r[j][k]);
+                    r2 += temp*temp;
+                }
                 
-                Pot += 4*epsilon*(term1 - term2);
+                tempx = r[i][0]-r[j][0];
+                tempy= r[i][1]-r[j][1];
+                tempz = r[i][2]-r[j][2];
+                */
+
+                tempx = r[i*3]-r[j*3];
+                tempy= r[i*3+1]-r[j*3+1];
+                tempz = r[i*3+2]-r[j*3+2];
+
+                r2 += tempx*tempx+tempy*tempy+tempz*tempz;
+                
+                //rnorm=sqrt(r2);
+                //quot=sigma/rnorm;
+                
+                // Otimização: substituição da func. pow()
+                //term2 = quot*quot*quot*quot*quot*quot;
+                term2 = 1 / (r2 * r2 * r2);
+                //term1 = term2*term2;
+        
+                Pot += 4*epsilon*term2*(term2 - 1);
                 
             }
         }
@@ -509,6 +519,67 @@ double Potential() {
     return Pot;
 }
 
+void computeAccelerationsAndPotencial() {
+    int i, j, k;
+    double f, rSqd, tempx, tempy, tempz, rSqd7, rSqd3;
+    double quot, r2, rnorm, term1, term2, Pot;
+    //double rij[3]; // position of i relative to j
+    
+    for (i = 0; i < N; i++) {  // set all accelerations to zero
+        // Otimização: supressão de loop para permitir a paralelização
+        a[i*3] = 0; a[i*3+1] = 0; a[i*3+2] = 0;
+    }
+
+    //Pot=0.;
+    PEA=0.;
+    for (i = 0; i < N; i++) {   // loop over all distinct pairs i,j
+        for (j = 0; j < N; j++) {
+
+            rSqd = 0;
+
+            tempx = r[i*3]-r[j*3];
+            tempy= r[i*3+1]-r[j*3+1];
+            tempz = r[i*3+2]-r[j*3+2];
+
+            rSqd += tempx*tempx + tempy*tempy +tempz*tempz;
+
+            if (i!=j){
+                // Otimização: substituição da func. pow()
+                //term2 = quot*quot*quot*quot*quot*quot;
+                term2 = 1 / (rSqd * rSqd * rSqd);
+                //term1 = term2*term2;
+        
+                PEA += 4*epsilon*term2*(term2 - 1);
+                
+            }
+
+            if (j>i && i<N-1){
+                //  From derivative of Lennard-Jones with sigma and epsilon set equal to 1 in natural units!
+                // Otimização: simplicação da fórmula da derivada de Lennard-Jones
+                //f= 24 * (1/(rSqd*rSqd*rSqd*rSqd)) * (2*(1/(rSqd*rSqd*rSqd))-1);
+                rSqd3 = rSqd*rSqd*rSqd;
+                rSqd7 = rSqd3*rSqd3*rSqd;
+                f =  (1/rSqd7)*(48-24*rSqd3);
+
+                /*
+                for (k = 0; k < 3; k++) {
+                    //  from F = ma, where m = 1 in natural units!
+                    a[i][k] += rij[k] * f;
+                    a[j][k] -= rij[k] * f;
+                }
+                */
+                a[i*3]+=tempx*f;
+                a[i*3+1]+=tempy*f;
+                a[i*3+2]+=tempz*f;
+
+                a[j*3]-=tempx*f;
+                a[j*3+1]-=tempy*f;
+                a[j*3+2]-=tempz*f;
+            }
+        }
+    }    
+    //return Pot;
+}
 
 
 //   Uses the derivative of the Lennard-Jones potential to calculate
@@ -516,58 +587,68 @@ double Potential() {
 //   accelleration of each atom. 
 void computeAccelerations() {
     int i, j, k;
-    double f, rSqd, temp;
-    double x,y,z;
-    double rij[3]; // position of i relative to j
+    double f, rSqd, tempx, tempy, tempz;
+    //double rij[3]; // position of i relative to j
     
     
-
-    //Otimização possível: Remover isto all together supondo que cpp inicializa tudo a 0, no entanto problema nas seguintes iterações 
-    for (i = 0; i < N; i++) {  // set all accelerations to zero
-        for (k = 0; k < 3; k++) {
-            a[i][k] = 0;
-        }
+    for (i = 0; i < N; i+=4) {  // set all accelerations to zero
+        // Otimização: supressão de loop
+        a[i*3] = 0; a[i*3+1] = 0; a[i*3+2] = 0;
+        a[(i+1)*3] = 0; a[(i+1)*3+1] = 0; a[(i+1)*3+2] = 0;
+        a[(i+2)*3] = 0; a[(i+2)*3+1] = 0; a[(i+2)*3+2] = 0;
+        a[(i+3)*3] = 0; a[(i+3)*3+1] = 0; a[(i+3)*3+2] = 0;
     }
-
 
     for (i = 0; i < N-1; i++) {   // loop over all distinct pairs i,j
         for (j = i+1; j < N; j++) {
             // initialize r^2 to zero
             rSqd = 0;
             
-            //Optimização: Remoção do for loop e inserção de variáveis temporárias para eliminar acessos desnecessários a um array
-            
+            //Otimização : Remoção de loops
+            //Otimização: inserção de variáveis auxiliares para minimizar o acesso a elementos da matriz
+            /*
             for (k = 0; k < 3; k++) {
                 //  component-by-componenent position of i relative to j
                 rij[k] = r[i][k] - r[j][k];
+                temp=rij[k];
                 //  sum of squares of the components
-                rSqd += rij[k] * rij[k];
+                //rSqd += rij[k] * rij[k];
+                rSqd += temp*temp;
             }
-            
-            /* DUVIDA: Elimino ciclos e dá me mais ciclos
-            x = r[i][0] - r[j][0];
-            y = r[i][1] - r[j][1];
-            z = r[i][2] - r[j][2];
 
-            rSqd += x*x + y*y+ z*z;
+            tempx = r[i][0]-r[j][0];
+            tempy= r[i][1]-r[j][1];
+            tempz = r[i][2]-r[j][2];
+            
             */
 
+            tempx = r[i*3]-r[j*3];
+            tempy= r[i*3+1]-r[j*3+1];
+            tempz = r[i*3+2]-r[j*3+2];
+
+            rSqd += tempx*tempx + tempy*tempy +tempz*tempz;
+
+            
             //  From derivative of Lennard-Jones with sigma and epsilon set equal to 1 in natural units!
-            //Otimização na fórmula da derivada de Lennard-Jones (Podemos diminuir o número de divisões)
+            // Otimização: simplicação da fórmula da derivada de Lennard-Jones
+            f= 24 * (1/(rSqd*rSqd*rSqd*rSqd)) * (2*(1/(rSqd*rSqd*rSqd))-1);
             //f = 24 * (2 * pow(rSqd, -7) - pow(rSqd, -4));
-            temp=rSqd*rSqd*rSqd;
-            f= 24 * (1/(temp*rSqd)) * (2*(1/(temp))-1);
-            // Otimização: Remoção de for loops
+            /*
             for (k = 0; k < 3; k++) {
                 //  from F = ma, where m = 1 in natural units!
                 a[i][k] += rij[k] * f;
                 a[j][k] -= rij[k] * f;
             }
-            /* DUVIDA: Elimino ciclos e dá me mais ciclos
-           a[i][0] += x*f; a[j][0] -= x*f;
-           a[i][1] += y*f; a[j][1] -= y*f;
-           a[i][2] += z*f; a[j][2] -= z*f;
-           */
+            */
+            a[i*3]+=tempx*f;
+            a[i*3+1]+=tempy*f;
+            a[i*3+2]+=tempz*f;
+
+            a[j*3]-=tempx*f;
+            a[j*3+1]-=tempy*f;
+            a[j*3+2]-=tempz*f;
+
+
         }
     }
 }
@@ -585,14 +666,16 @@ double VelocityVerlet(double dt, int iter, FILE *fp) {
     //printf("  Updated Positions!\n");
     for (i=0; i<N; i++) {
         for (j=0; j<3; j++) {
-            r[i][j] += v[i][j]*dt + 0.5*a[i][j]*dt*dt;
+            r[i*3+j] += v[i*3+j]*dt + 0.5*a[i*3+j]*dt*dt;
             
-            v[i][j] += 0.5*a[i][j]*dt;
+            v[i*3+j] += 0.5*a[i*3+j]*dt;
         }
         //printf("  %i  %6.4e   %6.4e   %6.4e\n",i,r[i][0],r[i][1],r[i][2]);
     }
     //  Update accellerations from updated positions
-    computeAccelerations();
+    computeAccelerationsAndPotencial();
+    //computeAccelerations();
+    /*
     //  Update velocity with updated acceleration
     for (i=0; i<N; i++) {
         for (j=0; j<3; j++) {
@@ -613,7 +696,25 @@ double VelocityVerlet(double dt, int iter, FILE *fp) {
             }
         }
     }
-    
+    */
+    //Otimização: Merge dos loops
+    //  Update velocity with updated acceleration
+    for (i=0; i<N; i++) {
+        for (j=0; j<3; j++) {
+            v[i*3+j] += 0.5*a[i*3+j]*dt;
+            //Elastic walls
+            if (r[i*3+j]<0.) {
+                v[i*3+j] *=-1.; //- elastic walls
+                psum += 2*m*fabs(v[i*3+j])/dt;  // contribution to pressure from "left" walls
+            }
+            if (r[i*3+j]>=L) {
+                v[i*3+j]*=-1.;  //- elastic walls
+                psum += 2*m*fabs(v[i*3+j])/dt;  // contribution to pressure from "right" walls
+            }
+        }
+    }
+
+
     
     /* removed, uncomment to save atoms positions */
     /*for (i=0; i<N; i++) {
@@ -637,7 +738,7 @@ void initializeVelocities() {
         
         for (j=0; j<3; j++) {
             //  Pull a number from a Gaussian Distribution
-            v[i][j] = gaussdist();
+            v[i*3+j] = gaussdist();
             
         }
     }
@@ -649,7 +750,7 @@ void initializeVelocities() {
     for (i=0; i<N; i++) {
         for (j=0; j<3; j++) {
             
-            vCM[j] += m*v[i][j];
+            vCM[j] += m*v[i*3+j];
             
         }
     }
@@ -664,19 +765,20 @@ void initializeVelocities() {
     for (i=0; i<N; i++) {
         for (j=0; j<3; j++) {
             
-            v[i][j] -= vCM[j];
+            v[i*3+j] -= vCM[j];
             
         }
     }
     
     //  Now we want to scale the average velocity of the system
     //  by a factor which is consistent with our initial temperature, Tinit
-    double vSqdSum, lambda;
+    double vSqdSum, lambda, temp;
     vSqdSum=0.;
     for (i=0; i<N; i++) {
         for (j=0; j<3; j++) {
-            
-            vSqdSum += v[i][j]*v[i][j];
+            // Otimização: substituição de acessos à matriz por var. temp.
+            temp = v[i*3+j];
+            vSqdSum += temp*temp;
             
         }
     }
@@ -686,7 +788,7 @@ void initializeVelocities() {
     for (i=0; i<N; i++) {
         for (j=0; j<3; j++) {
             
-            v[i][j] *= lambda;
+            v[i*3+j] *= lambda;
             
         }
     }
