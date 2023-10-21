@@ -42,7 +42,7 @@ double NA = 6.022140857e23;
 double kBSI = 1.38064852e-23;  // m^2*kg/(s^2*K)
 
 double PE;
-double PEA=0.;
+double PEA=0., KE, mvs;
 
 //  Size of box, which will be specified in natural units
 double L;
@@ -81,8 +81,10 @@ void initializeVelocities();
 double Potential();
 //  Compute mean squared velocity from particle velocities
 double MeanSquaredVelocity();
+
 //  Compute total kinetic energy from particle mass and velocities
 double Kinetic();
+void MeanSquaredVelocityAndKinetic();
 
 void computeAccelerationsAndPotencial();
 
@@ -93,7 +95,7 @@ int main()
     int i;
     double dt, Vol, Temp, Press, Pavg, Tavg, rho;
     double VolFac, TempFac, PressFac, timefac;
-    double KE, mvs, gc, Z;
+    double gc, Z;
     double Pot = 0.;
     char trash[10000], prefix[1000], tfn[1000], ofn[1000], afn[1000];
     FILE *infp, *tfp, *ofp, *afp;
@@ -315,8 +317,9 @@ int main()
         //  Instantaneous mean velocity squared, Temperature, Pressure
         //  Potential, and Kinetic Energy
         //  We would also like to use the IGL to try to see if we can extract the gas constant
-        mvs = MeanSquaredVelocity();
-        KE = Kinetic();
+        //mvs = MeanSquaredVelocity();
+        //KE = Kinetic(); 
+        MeanSquaredVelocityAndKinetic();
         //PE = Potential();
 
         // Temperature from Kinetic Theory
@@ -470,6 +473,35 @@ double Kinetic() { //Write Function here!
     //printf("  Total Kinetic Energy is %f\n",N*mvs*m/2.);
     return kin;
     
+}
+
+void MeanSquaredVelocidtyAndKinetic(){
+        
+    double vx2 = 0;
+    double vy2 = 0;
+    double vz2 = 0;
+    double v2, temp1, temp2, temp3, kin=0.;
+    
+    //Otimização: substituição de acessos às matrizes por var. temporária
+    for (int i=0; i<N; i++) {
+        temp1 = v[i*3+0]; vx2 += temp1*temp1;
+        temp2 = v[i*3+1]; vy2 +=temp2*temp2;
+        temp3 = v[i*3+2]; vz2 +=temp3*temp3;
+
+        v2 = 0.;
+
+        v2 += temp1*temp1+temp2*temp2+temp3*temp3;
+
+        //Otimização possível
+        kin += m*v2/2.;
+        
+
+    }
+    v2 = (vx2+vy2+vz2)/N;
+    
+    //printf("  Average of x-component of velocity squared is %f\n",v2);
+    mvs= v2;    
+    KE = kin;
 }
 
 
