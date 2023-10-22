@@ -475,7 +475,7 @@ double Kinetic() { //Write Function here!
     
 }
 
-void MeanSquaredVelocidtyAndKinetic(){
+void MeanSquaredVelocityAndKinetic(){
         
     double vx2 = 0;
     double vy2 = 0;
