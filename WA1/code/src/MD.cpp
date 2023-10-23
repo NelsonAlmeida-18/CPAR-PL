@@ -312,6 +312,8 @@ int main()
         //  Potential, and Kinetic Energy
         //  We would also like to use the IGL to try to see if we can extract the gas constant
         MeanSquaredVelocityAndKinetic();
+        //mvs = MeanSquaredVelocity();
+        //KE = Kinetic();
 
         // Temperature from Kinetic Theory
         Temp = m*mvs/(3*kB) * TempFac;
@@ -376,11 +378,11 @@ void initialize() {
         for (j=0; j<n; j++) {
             for (k=0; k<n; k++) {
                 if (p<N*3) {
-                    r[p*3] = (i+0.5)*pos;
-                    r[p*3+1]= (j+0.5)*pos;
-                    r[p*3+2]= (k + 0.5)*pos;
+                    r[p] = (i+0.5)*pos;
+                    r[p+1]= (j+0.5)*pos;
+                    r[p+2]= (k + 0.5)*pos;
                 }
-                p++;
+                p+=3;
             }
         }
     }
@@ -390,7 +392,6 @@ void initialize() {
     
 }   
 
-
 //  Function to calculate the averaged velocity squared and to calculate the kinetic energy of the system
 //Otimização: Esta função é o resultado do merge das funções providenciadas de MeanSquaredVelocity e Kinetic
 // Esta otimização tem por base: 
@@ -399,22 +400,31 @@ void MeanSquaredVelocityAndKinetic(){
     double vx2 = 0;
     double vy2 = 0;
     double vz2 = 0;
-    double v2, temp1, temp2, temp3, kin=0.;
+    double v2=0,  kin=0.;
+    double temp1,temp2,temp3;
+    //double rij[3];
     
     //Otimização: substituição de acessos às matrizes por var. temporária
-    for (int i=0; i<N; i++) {
-        temp1 = v[i*3+0]; vx2 += temp1*temp1;
-        temp2 = v[i*3+1]; vy2 +=temp2*temp2;
-        temp3 = v[i*3+2]; vz2 +=temp3*temp3;
+    for (int i=0; i<N*3; i+=3) {
+        v2=0;
+        
+        temp1 = v[i+0]; vx2 += temp1*temp1;
+        temp2 = v[i+1]; vy2 +=temp2*temp2;
+        temp3 = v[i+2]; vz2 +=temp3*temp3;
 
 
         v2 = temp1*temp1+temp2*temp2+temp3*temp3;
+        
+
+        //for(int k=0;k<3;k++) rij[k]=v[i*3+k]*v[i*3+k];
+
+        //for(int l=0;l<3;l++) v2+=rij[l]*rij[l];
 
         //Otimização possível
         kin += m*v2;
-        
-
     }
+
+    //for(int l=0;l<3;l++) v2+=rij[l]*rij[l];
     v2 = (vx2+vy2+vz2)/N;
     
     //printf("  Average of x-component of velocity squared is %f\n",v2);
@@ -425,20 +435,20 @@ void MeanSquaredVelocityAndKinetic(){
 
 // Function to calculate the potential energy of the system
 double Potential() {
-    double r2, term2, Pot, tempx, tempy, tempz;
+    double r2, term2, Pot, tempx, tempy, tempz, rij[3];
     int i, j;
     
     Pot=0.;
-    for (i=0; i<N; i++) {
+    for (i=0; i<N*3; i+=3) {
         
-        for (j=0; j<N; j++) {
-            
+        for (j=0; j<N*3; j+=3) {
+            /*
             if (j!=i) {
                 r2=0.;
                 //Otimização: Eliminação de ciclos
-                tempx = r[i*3]-r[j*3];
-                tempy= r[i*3+1]-r[j*3+1];
-                tempz = r[i*3+2]-r[j*3+2];
+                tempx = r[i]-r[j];
+                tempy= r[i+1]-r[j+1];
+                tempz = r[i+2]-r[j+2];
 
                 r2 += tempx*tempx+tempy*tempy+tempz*tempz;
 
@@ -449,6 +459,35 @@ double Potential() {
                 Pot += term2*(term2 - 1);
                 
             }
+            */
+            if (i!=j){
+                r2 = 0;
+
+                for (int k=0;k<3;k++) rij[k]=r[i+k]-r[j+k];
+                /*
+                tempx = r[i]-r[j];
+                tempy= r[i+1]-r[j+1];
+                tempz = r[i+2]-r[j+2];
+
+                rSqd += tempx*tempx + tempy*tempy +tempz*tempz;
+                */
+
+                for(int l=0;l<3;l++) r2+=rij[l]*rij[l];
+
+                //for(int k=0;k<3;k++) rij[k]=r[i+k]-r[j+k];
+
+                //for(int l=0;l<3;l++) rSqd+=rij[l]*rij[l];
+
+
+                // Otimização: substituição da func. pow()
+                //Otimização: remoção da variável term1 e reformulação dos cálculos para diminuir ao máximo as operações mais "custosas"
+                term2 = 1 / (r2 * r2 * r2);
+        
+                PEA += term2*(term2 - 1);
+                
+            }
+
+
         }
     }
     //Otimização: Multilpicar Pot por 4*epsilon é o mesmo que multiplicar a cada soma
@@ -459,25 +498,35 @@ double Potential() {
 void computeAccelerationsAndPotencial() {
     int i, j;
     double f, rSqd, tempx, tempy, tempz, rSqd7, rSqd3, term2;
-    //double rij[3]; // position of i relative to j
-    
-    for (i = 0; i < N*3; i++) {  // set all accelerations to zero
+    double rij[3]; // position of i relative to j
+    int size_N = N*3;
+    for (i = 0; i < size_N; i++) {  // set all accelerations to zero
         // Otimização: supressão de loop para permitir a paralelização
         a[i] = 0;
     }
 
     //Pot=0.;
     PEA=0.;
-    for (i = 0; i < N; i++) {   // loop over all distinct pairs i,j
-        for (j = 0; j < N; j++) {
+    for (i = 0; i < size_N; i+=3) {   // loop over all distinct pairs i,j
+        for (j = 0; j < size_N; j+=3) {
 
             rSqd = 0;
 
-            tempx = r[i*3]-r[j*3];
-            tempy= r[i*3+1]-r[j*3+1];
-            tempz = r[i*3+2]-r[j*3+2];
+            for (int k=0;k<3;k++) rij[k]=r[i+k]-r[j+k];
+            /*
+            tempx = r[i]-r[j];
+            tempy= r[i+1]-r[j+1];
+            tempz = r[i+2]-r[j+2];
 
             rSqd += tempx*tempx + tempy*tempy +tempz*tempz;
+            */
+
+            for(int l=0;l<3;l++) rSqd+=rij[l]*rij[l];
+
+            //for(int k=0;k<3;k++) rij[k]=r[i+k]-r[j+k];
+
+            //for(int l=0;l<3;l++) rSqd+=rij[l]*rij[l];
+
 
             if (i!=j){
                 // Otimização: substituição da func. pow()
@@ -488,20 +537,28 @@ void computeAccelerationsAndPotencial() {
                 
             }
 
-            if (j>i && i<N-1){
+            if (j>i && i<(N*3)-1){
                 //  From derivative of Lennard-Jones with sigma and epsilon set equal to 1 in natural units!
                 // Otimização: simplicação da fórmula da derivada de Lennard-Jones
                 rSqd3 = rSqd*rSqd*rSqd;
                 rSqd7 = rSqd3*rSqd3*rSqd;
                 f =  (1/rSqd7)*(48-24*rSqd3);
 
-                a[i*3]+=tempx*f;
-                a[i*3+1]+=tempy*f;
-                a[i*3+2]+=tempz*f;
+                /*
+                a[i]+=tempx*f;
+                a[i+1]+=tempy*f;
+                a[i+2]+=tempz*f;
 
-                a[j*3]-=tempx*f;
-                a[j*3+1]-=tempy*f;
-                a[j*3+2]-=tempz*f;
+                a[j]-=tempx*f;
+                a[j+1]-=tempy*f;
+                a[j+2]-=tempz*f;
+                */
+                
+                for(int k=0;k<3;k++){
+                    a[i+k]+=rij[k]*f;
+                    a[j+k]-=rij[k]*f;
+                }
+                
             }
         }
     }   
@@ -523,25 +580,24 @@ double VelocityVerlet(double dt, int iter, FILE *fp) {
 
     for (i=0; i<N*3; i++){
         r[i] += v[i]*dt + 0.5*a[i]*dt*dt;
-            
         v[i] += 0.5*a[i]*dt;
     }
     //  Update accellerations from updated positions
     computeAccelerationsAndPotencial();
     //Otimização: Merge dos loops
     //  Update velocity with updated acceleration
-    for (i=0; i<N; i++) {
+    for (i=0; i<N*3; i+=3) {
         for (j=0; j<3; j++) {
-            v[i*3+j] += 0.5*a[i*3+j]*dt;
+            v[i+j] += 0.5*a[i+j]*dt;
             //Elastic walls
         
-            if (r[i*3+j]<0.) {
-                v[i*3+j] *=-1.; //- elastic walls
-                psum += 2*m*fabs(v[i*3+j])/dt;  // contribution to pressure from "left" walls
+            if (r[i+j]<0.) {
+                v[i+j] *=-1.; //- elastic walls
+                psum += 2*m*fabs(v[i+j])/dt;  // contribution to pressure from "left" walls
             }
-            if (r[i*3+j]>=L) {
-                v[i*3+j]*=-1.;  //- elastic walls
-                psum += 2*m*fabs(v[i*3+j])/dt;  // contribution to pressure from "right" walls
+            if (r[i+j]>=L) {
+                v[i+j]*=-1.;  //- elastic walls
+                psum += 2*m*fabs(v[i+j])/dt;  // contribution to pressure from "right" walls
             }
             
         }
@@ -566,10 +622,10 @@ void initializeVelocities() {
     // Compute center-of-mas velocity according to the formula above
     double vCM[3] = {0, 0, 0};
     
-    for (i=0; i<N; i++) {
+    for (i=0; i<N*3; i+=3) {
         for (j=0; j<3; j++) {
             
-            vCM[j] += v[i*3+j];
+            vCM[j] += v[i+j];
             
         }
     }
@@ -585,11 +641,11 @@ void initializeVelocities() {
     //  Now we want to scale the average velocity of the system
     //  by a factor which is consistent with our initial temperature, Tinit
     //Otimização: Merge dos loops
-    for (i=0; i<N; i++) {
+    for (i=0; i<N*3; i+=3) {
         for (j=0; j<3; j++) {
-            v[i*3+j] -= vCM[j];
+            v[i+j] -= vCM[j];
             // Otimização: substituição de acessos à matriz por var. temp.
-            temp = v[i*3+j];
+            temp = v[i+j];
             vSqdSum += temp*temp;
         }
     }
@@ -627,3 +683,4 @@ double gaussdist() {
         
     }
 }
+
