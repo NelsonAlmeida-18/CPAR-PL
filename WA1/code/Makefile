@@ -1,6 +1,7 @@
 CC = gcc
 SRC = src/
-CFLAGS = -O2 -funroll-loops
+CFLAGS = -O3 -funroll-loops 
+#-ffast-math
 .DEFAULT_GOAL = MD.exe
 
 MD: $(SRC)MD.cpp
@@ -28,4 +29,4 @@ gprof_output:
 	gprof MD.exe gmon.out > "analysis-$$(date +"%Y-%m-%-d-%H-%M").txt"
 
 cf:
-	python compare.py
+	python3 compare.py
