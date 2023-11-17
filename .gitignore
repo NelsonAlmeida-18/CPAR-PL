@@ -1,0 +1,4 @@
+# Ignore Makefiles
+Makefile
+makefile
+*.mk
