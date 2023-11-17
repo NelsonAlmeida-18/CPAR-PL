@@ -1,7 +1,6 @@
 CC = gcc
 SRC = src/
-CFLAGS = -O3 -funroll-loops 
-#-ffast-math
+CFLAGS = -O3 -funroll-loops -ffast-math -ftree-vectorize -mavx -mfpmath=sse -march=x86-64
 .DEFAULT_GOAL = MD.exe
 
 MD: $(SRC)MD.cpp
@@ -19,8 +18,8 @@ run_perf:
 run_perf_host:
 	perf stat -e instructions,cycles ./MD.exe < inputdata.txt 
 
-gprofc:
-	gcc -Wall -pg ./src/MD.cpp -lm -o MD_gprof
+annotate:
+	perf stat -e instructions,cycles ./MD.exe < inputdata.txt 
 
 gprof_run:
 	./MD_gprof < inputdata.txt
@@ -28,5 +27,20 @@ gprof_run:
 gprof_output:
 	gprof MD.exe gmon.out > "analysis-$$(date +"%Y-%m-%-d-%H-%M").txt"
 
-cf:
-	python3 compare.py
+run_perfcm:
+	srun --partition=cpar --cpus-per-task=2 perf stat -e cache-references,cache-misses,instructions,cycles ./MD.exe < inputdata.txt 
+
+run_perfcm_avg:
+	srun --partition=cpar --cpus-per-task=2 perf stat -r 10 -e cache-references,cache-misses,instructions,cycles ./MD.exe < inputdata.txt 
+
+run_gperf:
+	srun --partition=cpar --cpus-per-task=2 perf record -g -o gperf.out ./MD.exe < inputdata.txt
+
+run_gperf_host:
+	perf record -g -o gperf.out ./MD.exe < inputdata.txt
+
+gprofc:
+	gcc -Wall $(CFLAGS) -pg ./src/MD.cpp  -lm -o MD_gprof
+
+gprof_foutput: 
+	gprof -b MD.exe gmon.out > "analysis-$$(date +"%Y-%m-%-d-%H-%M").txt"
