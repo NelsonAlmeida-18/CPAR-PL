@@ -1,6 +1,6 @@
 CC = gcc
 SRC = src/
-CFLAGS = -O3 -funroll-loops -ffast-math 
+CFLAGS = -O3 -funroll-loops -ffast-math -ftree-vectorize -mavx -mfpmath=sse -march=x86-64
 .DEFAULT_GOAL = all
 
 all: MDseq.exe MDpar.exe
