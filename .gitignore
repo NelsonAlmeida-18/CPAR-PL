@@ -1,4 +1,2 @@
 # Ignore Makefiles
-Makefile
-makefile
-*.mk
+WA2/code/Makefile
