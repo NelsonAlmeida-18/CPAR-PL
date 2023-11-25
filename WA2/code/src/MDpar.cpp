@@ -28,7 +28,7 @@
 #include<math.h>
 #include<string.h>
 #include<cstring>
-
+#include<omp.h>
 
 // Number of particles
 int N;
@@ -427,92 +427,231 @@ void MeanSquaredVelocityAndKinetic(){
     KE = 0.5*kin;
 }
 
+// void computeAccelerationsAndPotencial() {
+//     int i, j;
+//     double f, rSqd, rSqd7, rSqd3, term2, tempx, tempy, tempz;
+//     int threadNum;
+//     int numThreads = omp_get_max_threads();
+//     //double rij[3]; // position of i relative to j
 
-// Function to calculate the potential energy of the system
-double Potential() {
-    double r2, term2, Pot, rij[3];
-    int i, j;
     
-    Pot=0.;
-    for (i=0; i<N*3; i+=3) {
-        for (j=0; j<N*3; j+=3) {
-            if (i!=j){
-                r2 = 0;
+//     for (i = 0; i < N*3; i++) {  // set all accelerations to zero
+//         // Otimização: supressão de loop para permitir a paralelização
+//         a[i] = 0;
+//     }
 
-                for (int k=0;k<3;k++) rij[k]=r[i+k]-r[j+k];
+//     //First step
+//     //Divide array a into numThreads arrays
+//     //Each thread will compute the acceleration of a part of its private array
+//     //In the end we will sum all the arrays into a single one(a)
+//     double aTemp[numThreads][N*3];
+//     #pragma omp parallel num_threads(numThreads) private(N, threadNum, i)
+//     {
+//         int threadNum = omp_get_thread_num();
+//         #pragma omp for
+//         for (i = 0; i < N*3; i++) {  // set all accelerations to zero
+//             aTemp[threadNum][i] = 0;
+//         }
+//     }
 
-                for(int l=0;l<3;l++) r2+=rij[l]*rij[l];
-                // Otimização: substituição da func. pow()
-                //Otimização: remoção da variável term1 e reformulação dos cálculos para diminuir ao máximo as operações mais "custosas"
-                term2 = 1 / (r2 * r2 * r2);
-                PEA += term2*(term2 - 1); 
-            }
+//     //Pot=0.;
+//     PEA=0.;
+//     #pragma omp parallel num_threads(numThreads)
+//     #pragma omp for reduction(+:PEA) private(r,N, i,j,rSqd, rSqd3, tempx, tempy, tempz, threadNum) schedule(static)
+//     for (i = 0; i < N*3; i+=3) {   // loop over all distinct pairs i,j
+//         for (j = 0; j < N*3; j+=3) {
+//             threadNum = omp_get_thread_num();
+//             rSqd = 0;
 
+//             tempx = r[i]-r[j];
+//             tempy= r[i+1]-r[j+1];
+//             tempz = r[i+2]-r[j+2];
 
-        }
-    }
-    //Otimização: Multilpicar Pot por 4*epsilon é o mesmo que multiplicar a cada soma
-    //Desta forma diminuimos significativamente o número de multiplicações
-    return 4*Pot;
-}
+//             rSqd += tempx*tempx + tempy*tempy +tempz*tempz;
+            
+//             rSqd3 = rSqd*rSqd*rSqd;
+//             if (i!=j){
+//                 // Otimização: substituição da func. pow()
+//                 //Otimização: remoção da variável term1 e reformulação dos cálculos para diminuir ao máximo as operações mais "custosas"
+//                 term2 = 1 / rSqd3;
+//                 PEA += term2*(term2 - 1);
+                
+//             }
+
+//             if (j>i && i<(N*3)-1){
+//                 //  From derivative of Lennard-Jones with sigma and epsilon set equal to 1 in natural units!
+//                 // Otimização: simplicação da fórmula da derivada de Lennard-Jones
+                
+//                 rSqd7 = rSqd3*rSqd3*rSqd;
+//                 f =  (1/rSqd7)*(48-24*rSqd3);
+
+//                 //Each thread computes its own part of the operation
+//                 aTemp[threadNum][i]+=tempx*f;
+//                 aTemp[threadNum][i+1]+=tempy*f;
+//                 aTemp[threadNum][i+2]+=tempz*f;
+
+//                 aTemp[threadNum][j]-=tempx*f;
+//                 aTemp[threadNum][j+1]-=tempy*f;
+//                 aTemp[threadNum][j+2]-=tempz*f;
+
+//             }
+//         }
+//     }   
+
+//     //Second step
+//     //Sum all the arrays into a single one(a)
+//     #pragma omp parallel for
+//     for(int i=0;i<N*3;i++){
+//         for(int j=0; j<numThreads; j++){
+//             a[i]+=aTemp[j][i];
+//         }
+//     }
+
+//     //Otimização: Multiplicar o resultado por 4*epsilon = multiplicar cada elemento por esse valor
+//     //Desta forma diminuimos significativamente a operação custosa da multiplicação
+//     //Sabendo que epsilon=1 vamos eliminar essa multiplicação
+//     PEA *= 4; 
+// }
+
+// void computeAccelerationsAndPotencial() {
+//     int i, j;
+//     double f, rSqd, rSqd7, rSqd3, term2, tempx, tempy, tempz;
+//     int threadNum;
+//     int numThreads = omp_get_max_threads();
+
+//     for (i = 0; i < N*3; i++) {
+//         a[i] = 0;
+//     }
+
+//     double aTemp[numThreads][N*3];
+//     #pragma omp parallel num_threads(numThreads) private(N,i, threadNum)
+//     {
+//         threadNum = omp_get_thread_num();
+//         #pragma omp for
+//         for (i = 0; i < N*3; i++) {
+//             aTemp[threadNum][i] = 0;
+//         }
+//     }
+
+//     PEA=0.;
+//     #pragma omp parallel num_threads(numThreads) private(i, j, f, rSqd, rSqd7, rSqd3, term2, tempx, tempy, tempz, threadNum)
+//     {
+//         threadNum = omp_get_thread_num();
+//         #pragma omp for reduction(+:PEA) schedule(static)
+//         for (i = 0; i < N*3; i+=3) {
+//             for (j = 0; j < N*3; j+=3) {
+//                 rSqd = 0;
+
+//                 tempx = r[i]-r[j];
+//                 tempy= r[i+1]-r[j+1];
+//                 tempz = r[i+2]-r[j+2];
+
+//                 rSqd += tempx*tempx + tempy*tempy +tempz*tempz;
+                
+//                 rSqd3 = rSqd*rSqd*rSqd;
+//                 if (i!=j){
+//                     term2 = 1 / rSqd3;
+//                     PEA += term2*(term2 - 1);
+//                 }
+
+//                 if (j>i && i<(N*3)-1){
+//                     rSqd7 = rSqd3*rSqd3*rSqd;
+//                     f =  (1/rSqd7)*(48-24*rSqd3);
+
+//                     #pragma omp atomic
+//                     aTemp[threadNum][i]+=tempx*f;
+//                     #pragma omp atomic
+//                     aTemp[threadNum][i+1]+=tempy*f;
+//                     #pragma omp atomic
+//                     aTemp[threadNum][i+2]+=tempz*f;
+
+//                     #pragma omp atomic
+//                     aTemp[threadNum][j]-=tempx*f;
+//                     #pragma omp atomic
+//                     aTemp[threadNum][j+1]-=tempy*f;
+//                     #pragma omp atomic
+//                     aTemp[threadNum][j+2]-=tempz*f;
+//                 }
+//             }
+//         }
+//     }
+
+//     #pragma omp parallel for
+//     for(int i=0;i<N*3;i++){
+//         for(int j=0; j<numThreads; j++){
+//             a[i]+=aTemp[j][i];
+//         }
+//     }
+
+//     PEA *= 4; 
+// }
 
 void computeAccelerationsAndPotencial() {
     int i, j;
     double f, rSqd, rSqd7, rSqd3, term2, tempx, tempy, tempz;
-    //double rij[3]; // position of i relative to j
+    int threadNum;
+    int numThreads = omp_get_max_threads();
 
-    int size_N = N*3;
-    
-    for (i = 0; i < size_N; i++) {  // set all accelerations to zero
-        // Otimização: supressão de loop para permitir a paralelização
+    // Create a temporary array for each thread
+    double** aTemp = (double**)malloc(numThreads*sizeof(double*));
+    for (i = 0; i < numThreads; i++) {
+        aTemp[i] = (double*)calloc(N*3, sizeof(double));
+    }
+
+    for (i = 0; i < N*3; i++) {
         a[i] = 0;
     }
-    
 
-    //Pot=0.;
     PEA=0.;
-    for (i = 0; i < size_N; i+=3) {   // loop over all distinct pairs i,j
-        for (j = 0; j < size_N; j+=3) {
+    #pragma omp parallel num_threads(numThreads) private(i, j, f, rSqd, rSqd7, rSqd3, term2, tempx, tempy, tempz, threadNum)
+    {
+        threadNum = omp_get_thread_num();
+        #pragma omp for reduction(+:PEA) schedule(static)
+        for (i = 0; i < N*3; i+=3) {
+            for (j = 0; j < N*3; j+=3) {
+                rSqd = 0;
 
-            rSqd = 0;
+                tempx = r[i]-r[j];
+                tempy= r[i+1]-r[j+1];
+                tempz = r[i+2]-r[j+2];
 
-            tempx = r[i]-r[j];
-            tempy= r[i+1]-r[j+1];
-            tempz = r[i+2]-r[j+2];
-
-            rSqd += tempx*tempx + tempy*tempy +tempz*tempz;
-            
-            rSqd3 = rSqd*rSqd*rSqd;
-            if (i!=j){
-                // Otimização: substituição da func. pow()
-                //Otimização: remoção da variável term1 e reformulação dos cálculos para diminuir ao máximo as operações mais "custosas"
-                term2 = 1 / rSqd3;
-                PEA += term2*(term2 - 1);
+                rSqd += tempx*tempx + tempy*tempy +tempz*tempz;
                 
-            }
+                rSqd3 = rSqd*rSqd*rSqd;
+                if (i!=j){
+                    term2 = 1 / rSqd3;
+                    PEA += term2*(term2 - 1);
+                }
 
-            if (j>i && i<(N*3)-1){
-                //  From derivative of Lennard-Jones with sigma and epsilon set equal to 1 in natural units!
-                // Otimização: simplicação da fórmula da derivada de Lennard-Jones
-                
-                rSqd7 = rSqd3*rSqd3*rSqd;
-                f =  (1/rSqd7)*(48-24*rSqd3);
+                if (j>i && i<(N*3)-1){
+                    rSqd7 = rSqd3*rSqd3*rSqd;
+                    f =  (1/rSqd7)*(48-24*rSqd3);
 
-                
-                a[i]+=tempx*f;
-                a[i+1]+=tempy*f;
-                a[i+2]+=tempz*f;
+                    aTemp[threadNum][i]+=tempx*f;
+                    aTemp[threadNum][i+1]+=tempy*f;
+                    aTemp[threadNum][i+2]+=tempz*f;
 
-                a[j]-=tempx*f;
-                a[j+1]-=tempy*f;
-                a[j+2]-=tempz*f;
-
+                    aTemp[threadNum][j]-=tempx*f;
+                    aTemp[threadNum][j+1]-=tempy*f;
+                    aTemp[threadNum][j+2]-=tempz*f;
+                }
             }
         }
-    }   
-    //Otimização: Multiplicar o resultado por 4*epsilon = multiplicar cada elemento por esse valor
-    //Desta forma diminuimos significativamente a operação custosa da multiplicação
-    //Sabendo que epsilon=1 vamos eliminar essa multiplicação
+    }
+
+    // Sum up the partial results into the original array a
+    for (i = 0; i < N*3; i++) {
+        for (j = 0; j < numThreads; j++) {
+            a[i] += aTemp[j][i];
+        }
+    }
+
+    // Clean up the temporary arrays
+    for (i = 0; i < numThreads; i++) {
+        free(aTemp[i]);
+    }
+    free(aTemp);
+
     PEA *= 4; 
 }
 
