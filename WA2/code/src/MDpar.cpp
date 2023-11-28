@@ -54,14 +54,14 @@ double Tinit;  //2;
 //
 const int MAXPART=5001;
 //  Position
-double r[MAXPART*3];
-//double *r = (double*)malloc(MAXPART*3*sizeof(double));
+//double r[MAXPART*3];
+double *r = (double*)malloc(MAXPART*3*sizeof(double));
 //  Velocity
-double v[MAXPART*3];
-//double *v = (double*)malloc(MAXPART*3*sizeof(double));
+//double v[MAXPART*3];
+double *v = (double*)malloc(MAXPART*3*sizeof(double));
 //  Acceleration
-double a[MAXPART*3];
-//double *a = (double*)malloc(MAXPART*3*sizeof(double));
+//double a[MAXPART*3];
+double *a = (double*)malloc(MAXPART*3*sizeof(double));
 
 int numThreads = omp_get_max_threads();
 // Create a temporary array for each thread
@@ -363,6 +363,11 @@ int main()
     fclose(tfp);
     fclose(ofp);
     fclose(afp);
+
+    // Clean up the temporary arrays
+    for (i = 0; i < numThreads; i++) {
+        free(aTemp[i]);
+    }
     free(aTemp);
     
     return 0;
@@ -437,10 +442,10 @@ void computeAccelerationsAndPotencial() {
     double f, rSqd, rSqd7, rSqd3, term2, tempx, tempy, tempz;
     int threadNum;
 
-    for (i = 0; i < N*3; i+=3) {
-        a[i] = 0; a[i+1]=0; a[i+2]=0;
+    for (i = 0; i < N*3; i++) {
+        a[i] = 0;
     }
-    //we use mallocs since the default value is 0 therefore it takes away the array initialization process
+
     for(i=0;i<numThreads;i++)   aTemp[i] = (double*)calloc(N*3, sizeof(double));
 
     PEA=0.;
@@ -448,7 +453,7 @@ void computeAccelerationsAndPotencial() {
     {
         threadNum = omp_get_thread_num();
         #pragma omp for reduction(+:PEA) schedule(dynamic, numThreads)
-        for (i = 0; i < N*3-3; i+=3) {
+        for (i = 0; i < N*3-4; i+=3) {
             for (j = i+3; j < N*3; j+=3) {
                 rSqd = 0;
 
@@ -459,10 +464,9 @@ void computeAccelerationsAndPotencial() {
                 rSqd += tempx*tempx + tempy*tempy +tempz*tempz;
                 
                 rSqd3 = rSqd*rSqd*rSqd;
-            
                 term2 = 1 / rSqd3;
                 PEA += term2*(term2 - 1);
-        
+
                 rSqd7 = rSqd3*rSqd3*rSqd;
                 f =  (1/rSqd7)*(48-24*rSqd3);
 
@@ -473,7 +477,7 @@ void computeAccelerationsAndPotencial() {
                 aTemp[threadNum][j]-=tempx*f;
                 aTemp[threadNum][j+1]-=tempy*f;
                 aTemp[threadNum][j+2]-=tempz*f;
-                
+            
             }
         }
         
@@ -481,15 +485,14 @@ void computeAccelerationsAndPotencial() {
 
 
     // Sum up the partial results into the original array a
-    for (j = 0; j < numThreads; j++) {
-        for (i = 0; i < N*3; i+=3) {
+    for (i = 0; i < N*3; i++) {
+        for (j = 0; j < numThreads; j++) {
             a[i] += aTemp[j][i];
-            a[i+1] += aTemp[j][i+1];
-            a[i+2] += aTemp[j][i+2];
         }
     }
 
-    PEA *= 4; 
+
+    PEA *= 8; 
 }
 
 
