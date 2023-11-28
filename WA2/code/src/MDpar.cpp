@@ -420,7 +420,7 @@ void MeanSquaredVelocityAndKinetic(){
     for (int i=0; i<N*3; i+=3) {
         v2=0;
         
-        temp1 = v[i+0]; vx2 += temp1*temp1;
+        temp1 = v[i]; vx2 += temp1*temp1;
         temp2 = v[i+1]; vy2 +=temp2*temp2;
         temp3 = v[i+2]; vz2 +=temp3*temp3;
 
@@ -442,8 +442,8 @@ void computeAccelerationsAndPotencial() {
     double f, rSqd, rSqd7, rSqd3, term2, tempx, tempy, tempz;
     int threadNum;
 
-    for (i = 0; i < N*3; i++) {
-        a[i] = 0;
+    for (i = 0; i < N*3; i+=3) {
+        a[i] = 0;a[i+1] = 0;a[i+2] = 0;
     }
 
     for(i=0;i<numThreads;i++)   aTemp[i] = (double*)calloc(N*3, sizeof(double));
@@ -485,9 +485,9 @@ void computeAccelerationsAndPotencial() {
 
 
     // Sum up the partial results into the original array a
-    for (i = 0; i < N*3; i++) {
+    for (i = 0; i < N*3; i+=3) {
         for (j = 0; j < numThreads; j++) {
-            a[i] += aTemp[j][i];
+            a[i] += aTemp[j][i];a[i+1] += aTemp[j][i];a[i+2] += aTemp[j][i+3];
         }
     }
 
@@ -502,9 +502,11 @@ double VelocityVerlet(double dt, int iter, FILE *fp) {
     double psum = 0.;
     //  Update positions and velocity with current velocity and acceleration
 
-    for (i=0; i<N*3; i++){
-        r[i] += v[i]*dt + 0.5*a[i]*dt*dt;
-        v[i] += 0.5*a[i]*dt;
+    for (i=0; i<N*3; i+=3){
+        r[i] += v[i]*dt + 0.5*a[i]*dt*dt;r[i+1] += v[i+1]*dt + 0.5*a[i+1]*dt*dt;r[i+2] += v[i+2]*dt + 0.5*a[i+2]*dt*dt;
+        v[i] += 0.5*a[i]*dt;v[i+1] += 0.5*a[i+1]*dt;v[i+1] += 0.5*a[i+1]*dt;
+
+        
     }
     //  Update accellerations from updated positions
     computeAccelerationsAndPotencial();
