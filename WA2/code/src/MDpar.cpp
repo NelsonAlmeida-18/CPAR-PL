@@ -54,14 +54,14 @@ double Tinit;  //2;
 //
 const int MAXPART=5001;
 //  Position
-//double r[MAXPART*3];
-double *r = (double*)malloc(MAXPART*3*sizeof(double));
+double r[MAXPART*3];
+//double *r = (double*)malloc(MAXPART*3*sizeof(double));
 //  Velocity
-//double v[MAXPART*3];
-double *v = (double*)malloc(MAXPART*3*sizeof(double));
+double v[MAXPART*3];
+//double *v = (double*)malloc(MAXPART*3*sizeof(double));
 //  Acceleration
-//double a[MAXPART*3];
-double *a = (double*)malloc(MAXPART*3*sizeof(double));
+double a[MAXPART*3];
+//double *a = (double*)malloc(MAXPART*3*sizeof(double));
 
 int numThreads = omp_get_max_threads();
 // Create a temporary array for each thread

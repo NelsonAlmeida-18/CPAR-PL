@@ -471,34 +471,23 @@ void computeAccelerationsAndPotencial() {
 
     //Pot=0.;
     PEA=0.;
-    for (i = 0; i < size_N; i+=3) {   // loop over all distinct pairs i,j
-        for (j = 0; j < size_N; j+=3) {
+    for (i = 0; i < N*3-4; i+=3) {
+            for (j = i+3; j < N*3; j+=3) {
+                rSqd = 0;
 
-            rSqd = 0;
+                tempx = r[i]-r[j];
+                tempy= r[i+1]-r[j+1];
+                tempz = r[i+2]-r[j+2];
 
-            tempx = r[i]-r[j];
-            tempy= r[i+1]-r[j+1];
-            tempz = r[i+2]-r[j+2];
-
-            rSqd += tempx*tempx + tempy*tempy +tempz*tempz;
-            
-            rSqd3 = rSqd*rSqd*rSqd;
-            if (i!=j){
-                // Otimização: substituição da func. pow()
-                //Otimização: remoção da variável term1 e reformulação dos cálculos para diminuir ao máximo as operações mais "custosas"
+                rSqd += tempx*tempx + tempy*tempy +tempz*tempz;
+                
+                rSqd3 = rSqd*rSqd*rSqd;
                 term2 = 1 / rSqd3;
                 PEA += term2*(term2 - 1);
-                
-            }
 
-            if (j>i && i<(N*3)-1){
-                //  From derivative of Lennard-Jones with sigma and epsilon set equal to 1 in natural units!
-                // Otimização: simplicação da fórmula da derivada de Lennard-Jones
-                
                 rSqd7 = rSqd3*rSqd3*rSqd;
                 f =  (1/rSqd7)*(48-24*rSqd3);
 
-                
                 a[i]+=tempx*f;
                 a[i+1]+=tempy*f;
                 a[i+2]+=tempz*f;
@@ -506,14 +495,13 @@ void computeAccelerationsAndPotencial() {
                 a[j]-=tempx*f;
                 a[j+1]-=tempy*f;
                 a[j+2]-=tempz*f;
-
-            }
+            
         }
-    }   
+    }
     //Otimização: Multiplicar o resultado por 4*epsilon = multiplicar cada elemento por esse valor
     //Desta forma diminuimos significativamente a operação custosa da multiplicação
     //Sabendo que epsilon=1 vamos eliminar essa multiplicação
-    PEA *= 4; 
+    PEA *= 8; 
 }
 
 
