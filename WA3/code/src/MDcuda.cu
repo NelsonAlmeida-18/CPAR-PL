@@ -23,27 +23,37 @@
  Wayne NJ 07470
  
  */
-#include<stdio.h>
-#include<stdlib.h>
-#include<math.h>
-#include<string.h>
-#include<cstring>
-#include<omp.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <math.h>
+#include <string.h>
+#include <stdio.h>
+#include <cstdlib>
+#include <iostream>
+#include <sys/time.h>
+#include <cuda.h>
+#include <chrono>
+//#include <cuda_runtime.h>
+//#include <device_launch_parameters.h>
+
 
 // Number of particles
-int N;
+int N=5000;
+__device__ int hN;
+__device__ int hNUM_THREADS_PER_BLOCK;
+const int NUM_THREADS_PER_BLOCK = 256;
+const int NUM_BLOCKS = (N + NUM_THREADS_PER_BLOCK - 1)/ NUM_THREADS_PER_BLOCK;
+
 
 //  Lennard-Jones parameters in natural units!
 double sigma = 1.;
 double epsilon = 1.;
 double m = 1.;
 double kB = 1.;
+double Pot=0;
 
 double NA = 6.022140857e23;
 double kBSI = 1.38064852e-23;  // m^2*kg/(s^2*K)
-
-double PE;
-double PEA=0., KE, mvs;
 
 //  Size of box, which will be specified in natural units
 double L;
@@ -54,18 +64,14 @@ double Tinit;  //2;
 //
 const int MAXPART=5001;
 //  Position
-double r[MAXPART*3];
-//double *r = (double*)malloc(MAXPART*3*sizeof(double));
+double r[MAXPART][3];
 //  Velocity
-double v[MAXPART*3];
-//double *v = (double*)malloc(MAXPART*3*sizeof(double));
+double v[MAXPART][3];
 //  Acceleration
-double a[MAXPART*3];
-//double *a = (double*)malloc(MAXPART*3*sizeof(double));
+double a[MAXPART][3];
+//  Force
+double F[MAXPART][3];
 
-int numThreads = omp_get_max_threads();
-// Create a temporary array for each thread
-double** aTemp = (double**)malloc(numThreads*sizeof(double*));
 // atom type
 char atype[10];
 //  Function prototypes
@@ -75,30 +81,25 @@ void initialize();
 //  print particle coordinates to file for rendering via VMD or other animation software
 //  return 'instantaneous pressure'
 double VelocityVerlet(double dt, int iter, FILE *fp);  
-
-//  Numerical Recipes function for generation gaussian distribution
-double gaussdist();
-
-//  Initialize velocities according to user-supplied initial Temperature (Tinit)
-void initializeVelocities();
-
-//  Compute mean squared velocity from particle velocities and total kinetic energy from particle mass and velocities
-void MeanSquaredVelocityAndKinetic();
-
 //  Compute Force using F = -dV/dr
 //  solve F = ma for use in Velocity Verlet
-//  Compute total potential energy from particle coordinates
-void computeAccelerationsAndPotencial();
+void launchComputeAccelerationsAndPotentialKernel();
+//  Numerical Recipes function for generation gaussian distribution
+double gaussdist();
+//  Initialize velocities according to user-supplied initial Temperature (Tinit)
+void initializeVelocities();
+//  Compute mean squared velocity from particle velocities
+double MeanSquaredVelocity();
+//  Compute total kinetic energy from particle mass and velocities
+double Kinetic();
 
 int main()
-{
-    
+{   
     //  variable delcarations
     int i;
     double dt, Vol, Temp, Press, Pavg, Tavg, rho;
     double VolFac, TempFac, PressFac, timefac;
-    double gc, Z;
-    
+    double KE, PE, mvs, gc, Z;
     char prefix[1000], tfn[1000], ofn[1000], afn[1000];
     FILE *tfp, *ofp, *afp;
     
@@ -135,6 +136,7 @@ int main()
     //  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     //  Edit these factors to be computed in terms of basic properties in natural units of
     //  the gas being simulated
+    
     
     printf("\n  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n");
     printf("  WHICH NOBLE GAS WOULD YOU LIKE TO SIMULATE? (DEFAULT IS ARGON)\n");
@@ -219,8 +221,9 @@ int main()
     printf("  NUMBER DENSITY OF LIQUID ARGON AT 1 ATM AND 87 K IS ABOUT 35000 moles/m^3\n");
     
     scanf("%lf",&rho);
-
-    N = 5000;
+    
+    cudaMemcpyToSymbol(hN, &N, sizeof(int));
+    cudaMemcpyToSymbol(hNUM_THREADS_PER_BLOCK, &NUM_THREADS_PER_BLOCK, sizeof(int));
     Vol = N/(rho*NA);
     
     Vol /= VolFac;
@@ -246,7 +249,7 @@ int main()
     }
     // Vol = L*L*L;
     // Length of the box in natural units:
-    L = cbrt(Vol);
+    L = pow(Vol,(1./3));
     
     //  Files that we can write different quantities to
     tfp = fopen(tfn,"w");     //  The MD trajectory, coordinates of every particle at each timestep
@@ -276,7 +279,7 @@ int main()
     //  Based on their positions, calculate the ininial intermolecular forces
     //  The accellerations of each particle will be defined from the forces and their
     //  mass, and this will allow us to update their positions via Newton's law
-    computeAccelerationsAndPotencial();
+    launchComputeAccelerationsAndPotentialKernel();
     
     
     // Print number of particles to the trajectory file
@@ -318,10 +321,10 @@ int main()
         //  Instantaneous mean velocity squared, Temperature, Pressure
         //  Potential, and Kinetic Energy
         //  We would also like to use the IGL to try to see if we can extract the gas constant
-        MeanSquaredVelocityAndKinetic();
-        //mvs = MeanSquaredVelocity();
-        //KE = Kinetic();
-
+        KE = Kinetic();
+        mvs = KE / (N * 0.5);
+        PE = Pot;
+        
         // Temperature from Kinetic Theory
         Temp = m*mvs/(3*kB) * TempFac;
         
@@ -334,7 +337,7 @@ int main()
         Tavg += Temp;
         Pavg += Press;
         
-        fprintf(ofp,"  %8.4e  %20.8f  %20.8f %20.8f  %20.8f  %20.8f \n",i*dt*timefac,Temp,Press,KE, PEA, KE+PEA);
+        fprintf(ofp,"  %8.4e  %20.8f  %20.8f %20.8f  %20.8f  %20.8f \n",i*dt*timefac,Temp,Press,KE, PE, KE+PE);
         
         
     }
@@ -360,15 +363,12 @@ int main()
     printf("\n  TOTAL VOLUME (m^3):                      %10.5e \n",Vol*VolFac);
     printf("\n  NUMBER OF PARTICLES (unitless):          %i \n", N);
     
+    
+    
+    
     fclose(tfp);
     fclose(ofp);
     fclose(afp);
-
-    // Clean up the temporary arrays
-    for (i = 0; i < numThreads; i++) {
-        free(aTemp[i]);
-    }
-    free(aTemp);
     
     return 0;
 }
@@ -379,7 +379,7 @@ void initialize() {
     double pos;
     
     // Number of atoms in each direction
-    n = int(ceil(cbrt(N)));
+    n = int(ceil(pow(N, 1.0/3)));
     
     //  spacing between atoms along a given direction
     pos = L / n;
@@ -390,12 +390,13 @@ void initialize() {
     for (i=0; i<n; i++) {
         for (j=0; j<n; j++) {
             for (k=0; k<n; k++) {
-                if (p<N*3) {
-                    r[p] = (i+0.5)*pos;
-                    r[p+1]= (j+0.5)*pos;
-                    r[p+2]= (k + 0.5)*pos;
+                if (p<N) {
+                    
+                    r[p][0] = (i + 0.5)*pos;
+                    r[p][1] = (j + 0.5)*pos;
+                    r[p][2] = (k + 0.5)*pos;
                 }
-                p+=3;
+                p++;
             }
         }
     }
@@ -403,179 +404,236 @@ void initialize() {
     // Call function to initialize velocities
     initializeVelocities();
     
-}   
-
-//  Function to calculate the averaged velocity squared and to calculate the kinetic energy of the system
-//Otimização: Esta função é o resultado do merge das funções providenciadas de MeanSquaredVelocity e Kinetic
-// Esta otimização tem por base: 
-void MeanSquaredVelocityAndKinetic(){
-        
-    double vx2 = 0;
-    double vy2 = 0;
-    double vz2 = 0;
-    double v2=0,  kin=0.;
-    double temp1,temp2,temp3;
-    
-    //Otimização: substituição de acessos às matrizes por var. temporária
-    for (int i=0; i<N*3; i+=3) {
-        v2=0;
-        
-        temp1 = v[i]; vx2 += temp1*temp1;
-        temp2 = v[i+1]; vy2 +=temp2*temp2;
-        temp3 = v[i+2]; vz2 +=temp3*temp3;
-
-
-        v2 = temp1*temp1+temp2*temp2+temp3*temp3;
-
-        //Otimização possível
-        kin += m*v2;
-    }
-
-    v2 = (vx2+vy2+vz2)/N;
-
-    mvs= v2;    
-    KE = 0.5*kin;
 }
 
-void computeAccelerationsAndPotencial() {
-    int i, j;
-    double f, rSqd, rSqd7, rSqd3, term2, tempx, tempy, tempz;
-    int threadNum;
 
-    for (i = 0; i < N*3; i+=3) {
-        a[i] = 0;a[i+1] = 0;a[i+2] = 0;
+//  Function to calculate the kinetic energy of the system
+double Kinetic() { //Write Function here!  
+    
+    double v2, kin;
+    
+    kin =0.;
+
+    for (int i=0; i<N; i++) {
+            
+        v2 = v[i][0]*v[i][0] + v[i][1]*v[i][1] + v[i][2]*v[i][2];
+    
+        kin += m*v2*0.5;
     }
+    
+    return kin;
+    
+}
 
-    for(i=0;i<numThreads;i++)   aTemp[i] = (double*)calloc(N*3, sizeof(double));
 
-    PEA=0.;
-    #pragma omp parallel num_threads(numThreads) private(i, j, f, rSqd, rSqd7, rSqd3, term2, tempx, tempy, tempz, threadNum)
-    {
-        threadNum = omp_get_thread_num();
-        #pragma omp for reduction(+:PEA) schedule(dynamic, numThreads)
-        for (i = 0; i < N*3-4; i+=3) {
-            for (j = i+3; j < N*3; j+=3) {
+__global__ void computeAccelerationsAndPotential(double (*ak)[3], double (*rk)[3], double* Pot) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+
+    __shared__ double sharedRk[NUM_THREADS_PER_BLOCK][3];
+
+    if (i < hN) {
+
+        for (int k = 0; k < 3; ++k)
+            sharedRk[threadIdx.x][k] = rk[i][k];
+        
+        Pot[i] = 0;
+
+        double rSqd, rij[3], rSqd3, rTemp, f, vals[3];
+        double vPot_local = 0.0;
+        double ak_local[3] = {0.0, 0.0, 0.0};
+
+        for (int j = 0; j < hN; j++) {
+
+            if (i != j) {
+            
                 rSqd = 0;
 
-                tempx = r[i]-r[j];
-                tempy= r[i+1]-r[j+1];
-                tempz = r[i+2]-r[j+2];
+                rij[0] = sharedRk[threadIdx.x][0] - rk[j][0];
+                rij[1] = sharedRk[threadIdx.x][1] - rk[j][1];
+                rij[2] = sharedRk[threadIdx.x][2] - rk[j][2];
 
-                rSqd += tempx*tempx + tempy*tempy +tempz*tempz;
+                rSqd = rij[0] * rij[0] + rij[1] * rij[1] + rij[2] * rij[2];
+
+                rSqd3 = rSqd * rSqd * rSqd;
+                rTemp = 1 / (rSqd3 * rSqd3 * rSqd);
+
+                vPot_local += 4 * (rSqd - (rSqd3 * rSqd)) * rTemp;
                 
-                rSqd3 = rSqd*rSqd*rSqd;
-                term2 = 1 / rSqd3;
-                PEA += term2*(term2 - 1);
+                f = (48 - 24 * rSqd3) * rTemp;
 
-                rSqd7 = rSqd3*rSqd3*rSqd;
-                f =  (1/rSqd7)*(48-24*rSqd3);
+                vals[0] = rij[0] * f; vals[1] = rij[1] * f; vals[2] = rij[2] * f;
 
-                aTemp[threadNum][i]+=tempx*f;
-                aTemp[threadNum][i+1]+=tempy*f;
-                aTemp[threadNum][i+2]+=tempz*f;
+                ak_local[0] += vals[0];
+                ak_local[1] += vals[1];
+                ak_local[2] += vals[2];
 
-                aTemp[threadNum][j]-=tempx*f;
-                aTemp[threadNum][j+1]-=tempy*f;
-                aTemp[threadNum][j+2]-=tempz*f;
-            
             }
         }
-        
+
+        Pot[i] = vPot_local;
+        ak[i][0] = ak_local[0];
+        ak[i][1] = ak_local[1];
+        ak[i][2] = ak_local[2];
+
     }
+}
 
 
-    // Sum up the partial results into the original array a
-    for (i = 0; i < N*3; i+=3) {
-        for (j = 0; j < numThreads; j++) {
-            for(int k=0;k<3;k++)
-                a[i+k] += aTemp[j][i+k];
-        }
-    }
+void launchComputeAccelerationsAndPotentialKernel() {
+    double v_Pot[N];
+    
 
+    for (int i = 0; i < N; i++)
+        a[i][0] = a[i][1] = a[i][2] = 0;
 
-    PEA *= 8; 
+    Pot = 0.0;
+
+    // pointers to the device memory
+    double (*ak)[3];
+    double (*rk)[3];
+    double* Pot_dev;
+
+    // declare variable with size of the array in bytes
+    int bytes = N * 3 * sizeof(double);
+
+    // allocate the memory on the device
+    cudaMalloc((void**)&ak, bytes);
+    cudaMalloc((void**)&rk, bytes);
+    cudaMalloc((void**)&Pot_dev, N * sizeof(double));
+
+    // copy inputs to the device
+    cudaMemcpy(ak, a, bytes, cudaMemcpyHostToDevice);
+    cudaMemcpy(rk, r, bytes, cudaMemcpyHostToDevice);
+
+    computeAccelerationsAndPotential<<<NUM_BLOCKS, NUM_THREADS_PER_BLOCK>>>(ak, rk, Pot_dev);
+
+    // copy the output to the host (if needed)
+    cudaMemcpy(a, ak, bytes, cudaMemcpyDeviceToHost);
+    cudaMemcpy(v_Pot, Pot_dev, N * sizeof(double), cudaMemcpyDeviceToHost);
+
+    for (int i = 0; i < N; i++)
+        Pot += v_Pot[i];
+
+    // free the device memory
+    cudaFree(ak);
+    cudaFree(rk);
+    cudaFree(Pot_dev);
 }
 
 
 // returns sum of dv/dt*m/A (aka Pressure) from elastic collisions with walls
 double VelocityVerlet(double dt, int iter, FILE *fp) {
     int i, j;
+    double h_dt = dt*0.5;
+    
     double psum = 0.;
+    double* result = (double*)malloc(2*sizeof(double));
+    double vij[3];
+    //  Compute accelerations from forces at current position
+    // this call was removed (commented) for predagogical reasons
+    //computeAccelerations();
     //  Update positions and velocity with current velocity and acceleration
+    for (i=0; i<N; i++) {
+        //loop unrolling
+        for(int k=0;k<3;k++)
+            vij[k]=a[i][k]*h_dt;
+            
+        for(int k=0;k<3;k++)
+            r[i][k]+=v[i][k]*dt+vij[k]*dt;
 
-    for (i=0; i<N*3; i+=3){
-        r[i] += v[i]*dt + 0.5*a[i]*dt*dt;r[i+1] += v[i+1]*dt + 0.5*a[i+1]*dt*dt;r[i+2] += v[i+2]*dt + 0.5*a[i+2]*dt*dt;
-        v[i] += 0.5*a[i]*dt;v[i+1] += 0.5*a[i+1]*dt;v[i+1] += 0.5*a[i+1]*dt;
+        for(int k=0;k<3;k++)
+            v[i][k]+=vij[k];
 
-        
     }
     //  Update accellerations from updated positions
-    computeAccelerationsAndPotencial();
-    //Otimização: Merge dos loops
+    launchComputeAccelerationsAndPotentialKernel();
+    
     //  Update velocity with updated acceleration
-    for (i=0; i<N*3; i+=3) {
+    for (i=0; i<N; i++) {
+        //loop unrolling
+        v[i][0] += a[i][0]*h_dt;
+        v[i][1] += a[i][1]*h_dt;
+        v[i][2] += a[i][2]*h_dt;
+    }
+    
+    // Elastic walls
+    for (i=0; i<N; i++) {
         for (j=0; j<3; j++) {
-            v[i+j] += 0.5*a[i+j]*dt;
-            //Elastic walls
-        
-            if (r[i+j]<0.) {
-                v[i+j] *=-1.; //- elastic walls
-                psum += fabs(v[i+j])/dt;  // contribution to pressure from "left" walls
+            if (r[i][j]<0.) {
+                v[i][j] *=-1.; //- elastic walls
+                psum += m*fabs(v[i][j]);  // contribution to pressure from "left" walls
             }
-            if (r[i+j]>=L) {
-                v[i+j]*=-1.;  //- elastic walls
-                psum += fabs(v[i+j])/dt;  // contribution to pressure from "right" walls
+            if (r[i][j]>=L) {
+                v[i][j]*=-1.;  //- elastic walls
+                psum += m*fabs(v[i][j]);  // contribution to pressure from "right" walls
             }
-            
         }
     }
-    return 2*m*psum/(6*L*L);
+    
+    return psum/(6*L*L*h_dt);
 }
 
 
 void initializeVelocities() {
-    double vSqdSum, lambda, temp;
-    vSqdSum=0.;
+    
     int i, j;
     
-    for (i=0; i<N*3; i++) {
+    for (i=0; i<N; i++) {
         
-        //  Pull a number from a Gaussian Distribution
-        v[i] = gaussdist();
+        for (j=0; j<3; j++) {
+            //  Pull a number from a Gaussian Distribution
+            v[i][j] = gaussdist();
             
+        }
     }
     
     // Vcm = sum_i^N  m*v_i/  sum_i^N  M
     // Compute center-of-mas velocity according to the formula above
     double vCM[3] = {0, 0, 0};
     
-    for (i=0; i<N*3; i+=3) {
-        vCM[0] += v[i];vCM[1] += v[i+1];vCM[2] += v[i+2];
+    for (i=0; i<N; i++) {
+        for (j=0; j<3; j++) {
+            
+            vCM[j] += m*v[i][j];
+            
+        }
     }
     
-    for (i=0; i<3; i++) vCM[i] /= N;
+    
+    for (i=0; i<3; i++) vCM[i] /= N*m;
     
     //  Subtract out the center-of-mass velocity from the
     //  velocity of each particle... effectively set the
     //  center of mass velocity to zero so that the system does
     //  not drift in space!
-        
-    //  Now we want to scale the average velocity of the system
-    //  by a factor which is consistent with our initial temperature, Tinit
-    //Otimização: Merge dos loops
-    for (i=0; i<N*3; i+=3) {
+    for (i=0; i<N; i++) {
         for (j=0; j<3; j++) {
-            v[i+j] -= vCM[j];
-            // Otimização: substituição de acessos à matriz por var. temp.
-            temp = v[i+j];
-            vSqdSum += temp*temp;
+            
+            v[i][j] -= vCM[j];
+            
         }
     }
     
-    lambda = sqrt(3*(N-1)*Tinit/vSqdSum);
+    //  Now we want to scale the average velocity of the system
+    //  by a factor which is consistent with our initial temperature, Tinit
+    double vSqdSum, lambda;
+    vSqdSum=0.;
+    for (i=0; i<N; i++) {
+        for (j=0; j<3; j++) {
+            
+            vSqdSum += v[i][j]*v[i][j];
+            
+        }
+    }
     
-    for (i=0; i<N*3; i++) {
-        v[i] *= lambda;
+    lambda = sqrt( 3*(N-1)*Tinit/vSqdSum);
+    
+    for (i=0; i<N; i++) {
+        for (j=0; j<3; j++) {
+            
+            v[i][j] *= lambda;
+            
+        }
     }
 }
 
